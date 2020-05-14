@@ -1,5 +1,5 @@
 ---
-title: "Pre-processinf MODIS NDVI and deriving monthly composites"
+title: "Pre-processing MODIS NDVI and deriving monthly composites"
 author: "Paulo N Bernardino"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
@@ -11,7 +11,7 @@ output:
     highlight.chooser: TRUE
 ---
 
-# Pre-processinf MODIS NDVI and deriving monthly composites
+# Pre-processing MODIS NDVI and deriving monthly composites
   
 Paulo N Bernardino (paulo.nbernardino@gmail.com)
 
@@ -37,13 +37,16 @@ pkgTest <- function(x)
   }
   library(x, character.only = TRUE)
 }
-neededPackages <- c("raster", "rgdal")
+neededPackages <- c("raster", "rgdal", "gimms")
 for (package in neededPackages){pkgTest(package)}
 ```
 
+
 When you download MODIS data using the MODIStsp R package, the folders structure should look like the image below: 
 
-![](figs/folders_scsh.png)
+
+
+![](figs/folders_scsh.png){width=685px, height=319px}
 
 If that's the case, you can use the code below to load the files into R.
 
@@ -71,7 +74,7 @@ qa_brdf<-stack(files_qa_brdf)
 
 Tha table below summarizes the meaning of the values inside each layer.
 
-![](figs/QA_table.png)
+![](figs/QA_table.png){width=382, height=436px}
 
 ## Cropping to the study area
 
@@ -127,42 +130,68 @@ qa_mask7<-qa_brdf_site==0
 ndvi_masked<-mask(ndvi_masked, qa_mask7, maskvalue=0)
 
 ## Visualizing results
-plot(ndvi_masked[[201:204]])
-
+par(mfrow = c(1,2), mar = c(3,3,5,5))
+plot(ndvi_site[[28]], main="Before masking")
+plot(ndvi_masked[[28]], main="After masking")
 ```
 
 ## Creating the monthly composites
 
-Our data right now is on a bi-monthly temporal resolution, starting in the second half of February 2000, and ending in December 2018. We have an image every ~16 days, 23 images every year, so in total we have 434 images (layers).  We'll make monthly composites, using the max per-pixel value for each month.
+Our data right now is on a bi-monthly temporal resolution, starting in the second half of February 2000, and ending in December 2010. We have an image every ~16 days, 23 images every year, so in total we have 250 images (layers).  We'll make monthly composites, using the max per-pixel value for each month.
 
 ```{r, echo=TRUE, message=FALSE}
-## Finding corresponding months inside a year
-years <- as.numeric(substr(names(lc8), star=13, stop=16))
-pos_yrs<-unique(years)
-
-## Going through all the years
-out <- raster(extent(lc8[[1]]), ncols=ncol(lc8[[1]]), nrow=nrow(lc8[[1]]),
-               crs=proj4string(lc8))
-for (i in 1:length(pos_yrs)){
-  y <- lc8[[which(years==pos_yrs[i])]] # select only data for a single year
-  months <- as.numeric(substr(names(y), start=17, stop=18)) # object with 
-                                                            # months' indices
-  mc <- monthlyComposite(y, indices=months, fun=max) # make monthly composites
-                                                     # using max value of a                                                        pixel
-  
-  names(mc) <- paste0(pos_yrs[i],"_",unique(months))
-  out <- addLayer(out, mc)
+## Creating monthly indices (equal numbers for each month)
+mi_2000 <- c(1, rep(2:8, each=2), 9, 10, 10, 11, 11) 
+# monthly index for 2000 is different than the rest,
+# as we have only 1 image in February
+mi_year <- c(rep(1:8, each=2), 9, rep(10:12, each=2)) 
+mi <- c()
+for (i in 1:10){
+  mi <- c(mi, mi_year + (12*i))
 }
+mi <- c(mi_2000, mi)
+
+length(mi) == nlayers(ndvi_masked) # should be the same, i.e., one index per image
+
+## Deriving the monthly composites
+ndvi_monthly <- monthlyComposite(ndvi_masked, mi, fun = max)
 ```
 
-Visulalizing some of the maps before and after compositing. Note that here I used only data between Jan-2014 and Dec-2015.
+
+
+Visulalizing some of the maps before and after compositing.
+
+
 
 ```{r, echo=TRUE, message=FALSE}
-par(mfrow=c(2,2))
+par(mfrow=c(2,3), mar = c(2,3,3,5))
 
-plot(lc8[[6]], main="May 2014 (before)")
-plot(out[[4]], main="May 2014 (after)")
+plot(ndvi_masked[[8]], main="June (1) 2000 (before)")
+plot(ndvi_masked[[9]], main="June (2) 2000 (before)")
+plot(ndvi_monthly[[5]], main="June 2000 (after)")
 
-plot(lc8[[8]], main="June 2014 (before)")
-plot(out[[5]], main="June 2014 (after)")
+plot(ndvi_masked[[54]], main="June (1) 2002 (before)")
+plot(ndvi_masked[[55]], main="June (2) 2002 (before)")
+plot(ndvi_monthly[[29]], main="June 2002 (after)")
+```
+
+
+
+Visulalizing some time series before and after compositing. Dotted vertical red lines represent time-steps with NA values.
+
+
+
+```{r, echo=TRUE, message=FALSE}
+ts_bef <- ts(as.numeric(ndvi_masked[670]), start = c(2000, 02), frequency = 23)
+ts_after <- ts(as.numeric(ndvi_monthly[670]), start = c(2000, 02), frequency = 12)
+
+par(mfrow=c(2,1))
+
+plot(ts_bef, bty = "n", ylab = "NDVI", lwd = 3)
+NA_bef <- time(ts_bef)[is.na(ts_bef)]
+abline(v = NA_bef, col = "red", lty = 3)
+
+plot(ts_after, bty = "n", ylab = "NDVI", lwd = 3)
+NA_after <- time(ts_after)[is.na(ts_after)]
+abline(v = NA_after, col = "red", lty = 3)
 ```
